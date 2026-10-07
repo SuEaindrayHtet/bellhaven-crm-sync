@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bellhaven CRM review</title>
+<style>
+  :root { --ink:#1f2933; --muted:#627080; --line:#d9dee4; --bg:#f5f6f8; --card:#fff; --accent:#2e5d50; --warn:#9a5b00; --bad:#a32020; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.5 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; color:var(--ink); background:var(--bg); }
+  header { background:var(--accent); color:#fff; padding:14px 24px; display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
+  header h1 { font-size:18px; margin:0; flex:1; }
+  main { max-width:1000px; margin:0 auto; padding:20px 16px 80px; }
+  button { font:inherit; padding:6px 14px; border-radius:6px; border:1px solid var(--line); background:#fff; cursor:pointer; }
+  button.approve { background:var(--accent); color:#fff; border-color:var(--accent); }
+  button.reject { color:var(--bad); }
+  .tabs a { display:inline-block; padding:6px 12px; margin:0 6px 12px 0; border-radius:16px; text-decoration:none; color:var(--ink); background:#e6e9ed; }
+  .tabs a.on { background:var(--ink); color:#fff; }
+  .flash { background:#fff8e1; border:1px solid #ecd9a0; padding:8px 12px; border-radius:6px; margin-bottom:8px; }
+  .group { display:flex; align-items:center; gap:12px; margin:28px 0 8px; }
+  .group h2 { font-size:16px; margin:0; flex:1; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:14px 16px; margin-bottom:12px; }
+  .card h3 { margin:0 0 4px; font-size:15px; }
+  .card h3 small { font-weight:normal; color:var(--muted); }
+  .summary { margin:0 0 10px; }
+  table { border-collapse:collapse; width:100%; font-size:13.5px; margin-bottom:8px; }
+  th, td { text-align:left; padding:4px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:600; }
+  td.after { background:#eaf5ef; font-weight:600; }
+  ul.facts { margin:6px 0 10px; padding-left:18px; color:var(--muted); font-size:13.5px; }
+  .warn { color:var(--warn); }
+  .err { color:var(--bad); font-size:13.5px; }
+  .actions { display:flex; gap:8px; }
+  .scroll { overflow-x:auto; }
+  details { margin-top:24px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Bellhaven CRM review</h1>
+  {% if run %}<span>Last run {{ run.started_at }}: {{ run.locations }} locations, {{ run.accounts }} accounts</span>{% endif %}
+  <form method="post" action="{{ url_for('run_pipeline') }}"><button>Run pipeline now</button></form>
+</header>
+<main>
+  {% for m in get_flashed_messages() %}<div class="flash">{{ m }}</div>{% endfor %}
+  {% if run %}{% for w in run.warnings %}<div class="flash">Website note: {{ w }}</div>{% endfor %}{% endif %}
+
+  <div class="tabs">
+    {% for s in ['pending','applied','rejected','failed','stale'] %}
+      <a class="{{ 'on' if s == status }}" href="{{ url_for('index', status=s) }}">{{ s|capitalize }} ({{ counts.get(s, 0) }})</a>
+    {% endfor %}
+  </div>
+
+  {% if not groups %}<p>Nothing {{ status }}.{% if not run %} Click "Run pipeline now" to start.{% endif %}</p>{% endif %}
+
+  {% for type, items in groups.items() %}
+    <div class="group">
+      <h2>{{ labels.get(type, type) }} ({{ items|length }})</h2>
+      {% if status == 'pending' %}
+      <form method="post" action="{{ url_for('decide') }}">
+        {% for p in items %}<input type="hidden" name="key" value="{{ p.key }}">{% endfor %}
+        <button class="approve" name="action" value="approve">Approve all {{ items|length }}</button>
+      </form>
+      {% endif %}
+    </div>
+    {% for p in items %}
+    <div class="card">
+      <h3>{{ p.title }} <small>{% if p.account_id %}· {{ p.account_id }}{% endif %}{% if p.url %} · <a href="{{ p.url }}" target="_blank">website page</a>{% endif %}</small></h3>
+      <p class="summary">{{ p.summary }}</p>
+      {% if p.rows %}
+      <div class="scroll"><table>
+        <tr><th>Field</th><th>Website</th><th>CRM now</th><th>{{ p.target_header }}</th></tr>
+        {% for label, web, crm, after in p.rows %}
+        <tr><td>{{ label }}</td><td>{{ web }}</td><td>{{ crm }}</td><td class="{{ 'after' if after }}">{{ after }}</td></tr>
+        {% endfor %}
+      </table></div>
+      {% endif %}
+      <ul class="facts">
+        {% for f in p.facts %}<li>{{ f }}</li>{% endfor %}
+        {% for w in p.warnings %}<li class="warn">{{ w }}</li>{% endfor %}
+      </ul>
+      {% if p.result and p.result.error %}<p class="err">{{ p.result.error }}</p>{% endif %}
+      {% if p.result and p.result.new_account_id %}<p class="facts">New account id: {{ p.result.new_account_id }}</p>{% endif %}
+      {% if status in ['pending','failed'] %}
+      <form class="actions" method="post" action="{{ url_for('decide') }}">
+        <input type="hidden" name="key" value="{{ p.key }}">
+        <input type="hidden" name="status" value="{{ status }}">
+        <button class="approve" name="action" value="approve">{{ 'Retry' if status == 'failed' else 'Approve' }}</button>
+        <button class="reject" name="action" value="reject">Reject</button>
+      </form>
+      {% endif %}
+    </div>
+    {% endfor %}
+  {% endfor %}
+
+  {% if run and run.report %}
+  <details>
+    <summary>Every website location and what the last run decided ({{ run.report|length }} rows)</summary>
+    <div class="scroll"><table>
+      <tr><th>Location</th><th>City</th><th>Outcome</th><th>CRM account</th><th>Matched by</th></tr>
+      {% for r in run.report %}
+      <tr><td>{{ r.location }}</td><td>{{ r.city }}</td><td>{{ r.outcome }}</td><td>{{ r.account }}</td><td>{{ r.rule }}{% for n in r.notes %}<br><span class="warn">{{ n }}</span>{% endfor %}</td></tr>
+      {% endfor %}
+    </table></div>
+  </details>
+  {% endif %}
+</main>
+</body>
+</html>

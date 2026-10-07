@@ -1,0 +1,3 @@
+# Daily at 06:15 local time. The job only creates proposals; it never writes to the CRM.
+# Install with:  crontab crontab.txt   (edit the path first)
+15 6 * * * cd /path/to/bellhaven-assessment && .venv/bin/python pipeline.py >> data/pipeline.log 2>&1

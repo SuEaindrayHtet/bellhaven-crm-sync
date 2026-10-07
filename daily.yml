@@ -1,0 +1,43 @@
+name: Daily Bellhaven CRM sync (proposals only)
+
+on:
+  schedule:
+    - cron: "15 11 * * *"   # 11:15 UTC, early morning US time
+  workflow_dispatch: {}
+
+# Never run two at once: they would race on the proposals database.
+concurrency:
+  group: bellhaven-sync
+  cancel-in-progress: false
+
+jobs:
+  propose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - run: python -m pytest -q
+
+      # The decisions database must survive between runs, otherwise decided
+      # items would be proposed again. Here it is restored from the cache; in
+      # production this would be a shared Postgres table instead of a file.
+      - uses: actions/cache/restore@v4
+        with:
+          path: data/proposals.db
+          key: proposals-db-${{ github.run_id }}
+          restore-keys: proposals-db-
+
+      - name: Scrape, match, store proposals (no CRM writes)
+        env:
+          BELLHAVEN_API_TOKEN: ${{ secrets.BELLHAVEN_API_TOKEN }}
+        run: python pipeline.py
+
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: data/proposals.db
+          key: proposals-db-${{ github.run_id }}
